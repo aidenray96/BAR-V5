@@ -1,0 +1,345 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Bartender POS</title>
+  <style>
+    html,body { height:100%; margin:0; font-family:"Montserrat",Arial,sans-serif; background:#0b0c0d; color:#fff; overflow:hidden; }
+    .screen { display:none; height:100%; width:100%; flex-direction:column; }
+    .active { display:flex; }
+    .header { background:#111315; padding:18px; text-align:center; font-size:32px; font-weight:700; border-bottom:1px solid #1f2022; }
+    .grid { display:grid; gap:16px; padding:18px; box-sizing:border-box; align-content:start; overflow-y:auto; flex:1; }
+    .tile { display:flex; align-items:center; justify-content:center; text-align:center; font-weight:800; font-size:20px; user-select:none; cursor:pointer; height:120px; border-radius:8px; }
+    .spirits { background:#b22222; }
+    .softdrinks { background:#1e90ff; }
+    .cocktails { background:#228b22; }
+    .mocktails { background:#8a2be2; }
+    .beer { background:#8b4513; }
+    .coffee { background:#d2691e; }
+    .hotcoffee { background:#cd853f; }
+    .snacks { background:#ff8c00; color:#111; }
+    .custom { background:#6c7a89; color:#111; }
+    .mixers { background:#20b2aa; }
+    .toolbar { padding:12px 18px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+    .btn { background:#1f6feb; border:none; padding:12px 18px; border-radius:6px; color:#fff; font-weight:600; font-size:16px; cursor:pointer; margin-left:4px; }
+    .btn.ghost { background:#282a2c; color:#cdd4da; }
+    .btn.danger { background:#e74c3c; }
+    .input { padding:14px; border-radius:8px; border:none; background:#0f1113; color:#fff; font-size:18px; width:260px; margin:8px 0; }
+    #homeGrid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); align-items:stretch; }
+    .list { background:#0d0e0f; border:1px solid #151617; padding:10px; border-radius:6px; max-height:220px; overflow:auto; }
+    .listItem { display:flex; justify-content:space-between; align-items:center; padding:6px 6px; border-bottom:1px solid #111; gap:6px; }
+    .listItem span { flex:1; }
+  </style>
+</head>
+<body>
+
+  <!-- LOGIN -->
+  <div id="loginPage" class="screen active">
+    <div class="header">Login</div>
+    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+      <input id="loginUser" class="input" placeholder="Username" />
+      <input id="loginPass" class="input" placeholder="Password" type="password" />
+      <div class="toolbar">
+        <button id="loginBtn" class="btn">Login</button>
+      </div>
+      <div id="loginMsg" style="color:#f39c12; margin-top:10px; height:18px;"></div>
+    </div>
+  </div>
+
+  <!-- HOME -->
+  <div id="homePage" class="screen">
+    <div class="header">Main Menu</div>
+    <div id="homeGrid" class="grid">
+      <div class="tile spirits">Spirits</div>
+      <div class="tile softdrinks">Soft Drinks</div>
+      <div class="tile mixers">Mixers</div>
+      <div class="tile cocktails">Cocktails</div>
+      <div class="tile mocktails">Mocktails</div>
+      <div class="tile beer">Beer</div>
+      <div class="tile coffee">Iced Coffee</div>
+      <div class="tile hotcoffee">Hot Coffee</div>
+      <div class="tile snacks">Snacks</div>
+      <div class="tile custom">Custom Drink</div>
+    </div>
+    <div class="toolbar">
+      <button id="logoutBtn" class="btn ghost">Logout</button>
+      <button id="adminPanelBtn" class="btn" style="display:none">Admin Panel</button>
+    </div>
+  </div>
+
+  <!-- CATEGORY PAGE -->
+  <div id="categoryPage" class="screen">
+    <div id="categoryHeader" class="header"></div>
+    <div id="categoryGrid" class="grid"></div>
+    <div class="toolbar"><button class="btn ghost" onclick="showScreen('homePage')">Back</button></div>
+  </div>
+
+  <!-- OPTIONS PAGE -->
+  <div id="optionsPage" class="screen">
+    <div class="header" id="optionsHeader">Options</div>
+    <div id="optionsGrid" class="grid"></div>
+  </div>
+
+  <!-- CONFIRM -->
+  <div id="confirmPage" class="screen">
+    <div class="header">Confirm Order</div>
+    <div style="flex:1; display:flex; align-items:center; justify-content:center; font-size:24px;" id="orderSummary"></div>
+    <div class="toolbar">
+      <button id="confirmBtn" class="btn">Confirm</button>
+      <button class="btn ghost" onclick="showScreen('homePage')">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ADMIN PANEL -->
+  <div id="adminPage" class="screen">
+    <div class="header">Admin Panel</div>
+    <div style="flex:1; padding:18px; overflow-y:auto;">
+      <h3>Users</h3>
+      <div id="userList" class="list"></div>
+      <input id="newUser" class="input" placeholder="Username" />
+      <input id="newPass" class="input" placeholder="Password" type="password" />
+      <div class="toolbar">
+        <button id="addUserBtn" class="btn">Add User</button>
+      </div>
+      <h3>Orders</h3>
+      <div id="ordersList" class="list"></div>
+    </div>
+    <div class="toolbar"><button class="btn ghost" onclick="showScreen('homePage')">Back</button></div>
+  </div>
+
+<script>
+// --- persistence ---
+let admins=JSON.parse(localStorage.getItem("admins"))||{Aidenray:"Admin"};
+let users=JSON.parse(localStorage.getItem("users"))||{};
+let orders=[];
+
+let currentUser=null;
+let currentDrink="";
+let pending={category:null,item:null,mixer:null,price:0,ice:false,large:false,syrup:null,customCount:0,customChosen:[]};
+
+// menu data
+const MENU={
+  Spirits:['Vodka','Rum','Whiskey','Gin','Tequila','Brandy'],
+  'Soft Drinks':['Coke','Diet Coke','Lemonade','Soda Water','Tonic','Ginger Ale','Orange Juice'],
+  Mixers:['Tonic','Grenadine','Soda Water','Ginger Beer','Red Bull','Lime Cordial','Cranberry Juice'],
+  Cocktails:['Mojito','Cosmopolitan','Martini','Margarita'],
+  Mocktails:['Virgin Mojito','Shirley Temple','Nojito','Fruit Punch'],
+  Beer:['Lager','IPA','Stout','Cider'],
+  'Iced Coffee':['Iced Latte','Iced Mocha','Iced Americano'],
+  'Hot Coffee':['Latte','Cappuccino','Espresso','Americano','Mocha'],
+  Snacks:['Crisps','Nuts','Chips','Chocolate'],
+  Syrups:['Vanilla','Hazelnut','Caramel']
+};
+const COLORS={Spirits:"spirits","Soft Drinks":"softdrinks",Mixers:"mixers",Cocktails:"cocktails",Mocktails:"mocktails",Beer:"beer","Iced Coffee":"coffee","Hot Coffee":"hotcoffee",Snacks:"snacks",Custom:"custom"};
+const PRICES={Spirits:3,'Soft Drinks':1.5,Mixers:1,Cocktails:5,Mocktails:3,Beer:2.5,'Iced Coffee':2.5,'Hot Coffee':2.5,Snacks:1.5,Custom:4};
+const MIXER_PRICES={'Coke':0.5,'Diet Coke':0.5,'Lemonade':0.5,'Soda Water':0.3,'Tonic':0.3,'Ginger Ale':0.3,'Orange Juice':0.5,'Grenadine':0.5,'Ginger Beer':0.5,'Red Bull':1,'Lime Cordial':0.3,'Cranberry Juice':0.5};
+const EXTRAS={Syrup:0.3,Large:0.5};
+
+// --- navigation ---
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if(id==="adminPage") renderAdmin();
+}
+
+// --- login ---
+function login(){
+  const u=document.getElementById('loginUser').value.trim();
+  const p=document.getElementById('loginPass').value.trim();
+  if(admins[u]===p){currentUser=u;document.getElementById('adminPanelBtn').style.display='inline-block';showScreen('homePage');}
+  else if(users[u]===p){currentUser=u;document.getElementById('adminPanelBtn').style.display='none';showScreen('homePage');}
+  else{document.getElementById('loginMsg').textContent='Invalid login';}
+}
+document.getElementById('loginBtn').onclick=login;
+document.getElementById('logoutBtn').onclick=()=>{currentUser=null;showScreen('loginPage');};
+document.getElementById('adminPanelBtn').onclick=()=>showScreen('adminPage');
+
+// --- category handling ---
+function startCategory(cat){
+  pending={category:cat,item:null,mixer:null,price:PRICES[cat]||0,ice:false,large:false,syrup:null,customCount:0,customChosen:[]};
+  const header=document.getElementById('categoryHeader');header.textContent=cat;
+  const grid=document.getElementById('categoryGrid');grid.innerHTML='';
+  MENU[cat].forEach(it=>{
+    let d=document.createElement('div');
+    d.className="tile "+COLORS[cat];
+    d.textContent=it;
+    d.onclick=()=>chooseItem(cat,it);
+    grid.appendChild(d);
+  });
+  showScreen('categoryPage');
+}
+
+function chooseItem(cat,it){
+  pending.item=it;
+  if(cat==="Spirits"){
+    startMixerSelection(it);
+  }else if(cat==="Iced Coffee"||cat==="Hot Coffee"){
+    askSyrup(it);
+  }else if(cat==="Snacks"||cat==="Mixers"){
+    currentDrink=it;
+    showConfirm(); // snacks & mixers go straight to confirm
+  }else{
+    currentDrink=it;
+    askIce();
+  }
+}
+
+// --- mixers with spirits ---
+function startMixerSelection(spirit){
+  const grid=document.getElementById('categoryGrid');grid.innerHTML='';
+  document.getElementById('categoryHeader').textContent=`Choose mixer for ${spirit}`;
+  let allMixers=[...MENU["Soft Drinks"],...MENU["Mixers"]];
+  allMixers.forEach(mix=>{
+    let d=document.createElement('div');d.className="tile mixers";d.textContent=mix;
+    d.onclick=()=>{
+      pending.mixer=mix;
+      currentDrink=`${spirit} + ${mix}`;
+      pending.price=PRICES["Spirits"]+(MIXER_PRICES[mix]||0);
+      askIce();
+    };
+    grid.appendChild(d);
+  });
+}
+
+// --- syrup for coffee ---
+function askSyrup(coffee){
+  const grid=document.getElementById('optionsGrid');grid.innerHTML='';
+  document.getElementById('optionsHeader').textContent="Choose syrup";
+  let opts=["None"].concat(MENU.Syrups);
+  opts.forEach(opt=>{
+    let d=document.createElement('div');d.className="tile";d.textContent=opt;
+    d.onclick=()=>{
+      currentDrink=coffee;
+      if(opt!=="None"){pending.syrup=opt;pending.price+=EXTRAS.Syrup;currentDrink+=` (${opt} Syrup)`;}
+      askIce();
+    };
+    grid.appendChild(d);
+  });
+  showScreen('optionsPage');
+}
+
+// --- custom drink flow ---
+function startCustom(){
+  pending={category:"Custom",item:null,price:PRICES.Custom,customCount:0,customChosen:[]};
+  const grid=document.getElementById('optionsGrid');
+  grid.innerHTML='';
+  document.getElementById('optionsHeader').textContent="How many ingredients?";
+  [3,5,7].forEach(num=>{
+    let d=document.createElement('div');
+    d.className="tile custom";
+    d.textContent=num+" Ingredients";
+    d.onclick=()=>{
+      pending.customCount=num;
+      pending.customChosen=[];
+      chooseCustomIngredient();
+    };
+    grid.appendChild(d);
+  });
+  showScreen('optionsPage');
+}
+
+function chooseCustomIngredient(){
+  const grid=document.getElementById('optionsGrid');grid.innerHTML='';
+  document.getElementById('optionsHeader').textContent=`Choose ingredient ${pending.customChosen.length+1} of ${pending.customCount}`;
+  let allIngredients=[...MENU.Spirits,...MENU["Soft Drinks"],...MENU.Mixers,...MENU.Cocktails,...MENU.Mocktails,...MENU.Beer,...MENU.Snacks,...MENU.Syrups];
+  allIngredients.forEach(opt=>{
+    let d=document.createElement('div');d.className="tile";d.textContent=opt;
+    d.onclick=()=>{
+      pending.customChosen.push(opt);
+      if(pending.customChosen.length<pending.customCount){
+        chooseCustomIngredient();
+      } else {
+        currentDrink=`Custom Drink: ${pending.customChosen.join(", ")}`;
+        showConfirm();
+      }
+    };
+    grid.appendChild(d);
+  });
+  showScreen('optionsPage');
+}
+
+// --- ice/large/confirm ---
+function askIce(){
+  const grid=document.getElementById('optionsGrid');grid.innerHTML='';
+  document.getElementById('optionsHeader').textContent="Add ice?";
+  ["Yes","No"].forEach(ans=>{
+    let d=document.createElement('div');d.className="tile";d.textContent=ans;
+    d.onclick=()=>{if(ans==="Yes")pending.ice=true;askLarge();};
+    grid.appendChild(d);
+  });
+  showScreen('optionsPage');
+}
+function askLarge(){
+  const grid=document.getElementById('optionsGrid');grid.innerHTML='';
+  document.getElementById('optionsHeader').textContent="Make it Large?";
+  ["Yes","No"].forEach(ans=>{
+    let d=document.createElement('div');d.className="tile";d.textContent=ans;
+    d.onclick=()=>{
+      if(ans==="Yes"){pending.large=true;pending.price+=EXTRAS.Large;}
+      showConfirm();
+    };
+    grid.appendChild(d);
+  });
+  showScreen('optionsPage');
+}
+function showConfirm(){
+  let summary=currentDrink;
+  if(pending.mixer) summary+=` + ${pending.mixer}`;
+  if(pending.ice) summary+=" + Ice";
+  if(pending.large) summary+=" (Large)";
+  document.getElementById('orderSummary').textContent=`${summary} — £${pending.price.toFixed(2)}`;
+  showScreen('confirmPage');
+}
+document.getElementById('confirmBtn').onclick=()=>{
+  orders.push({drink:currentDrink,price:pending.price});
+  alert(`Order confirmed: ${currentDrink} — £${pending.price.toFixed(2)}`);
+  showScreen('homePage');
+};
+
+// --- admin ---
+function renderAdmin(){
+  const userList=document.getElementById('userList');userList.innerHTML='';
+  Object.keys(users).forEach(u=>{
+    let div=document.createElement('div');div.className="listItem";
+    div.innerHTML=`<span>${u}</span><button class="btn" onclick="promote('${u}')">Promote</button>`;
+    userList.appendChild(div);
+  });
+  const ordersList=document.getElementById('ordersList');ordersList.innerHTML='';
+  orders.forEach((o,i)=>{
+    let div=document.createElement('div');div.className="listItem";
+    div.innerHTML=`<span>${o.drink} — £${o.price.toFixed(2)}</span><button class="btn ghost" onclick="doneOrder(${i})">Done</button>`;
+    ordersList.appendChild(div);
+  });
+}
+function promote(u){
+  admins[u]=users[u];delete users[u];
+  saveAccounts();renderAdmin();
+}
+function doneOrder(i){orders.splice(i,1);renderAdmin();}
+document.getElementById('addUserBtn').onclick=()=>{
+  const u=document.getElementById('newUser').value.trim();
+  const p=document.getElementById('newPass').value.trim();
+  if(u&&p&&!users[u]&&!admins[u]){
+    users[u]=p;saveAccounts();renderAdmin();
+  }
+};
+
+// --- persist to localStorage ---
+function saveAccounts(){
+  localStorage.setItem("users",JSON.stringify(users));
+  localStorage.setItem("admins",JSON.stringify(admins));
+}
+
+// --- bind home buttons ---
+document.querySelectorAll('#homeGrid .tile').forEach(t=>{
+  t.onclick=()=>{
+    const cat=t.textContent;
+    if(cat==="Custom Drink") startCustom();
+    else startCategory(cat);
+  };
+});
+</script>
+</body>
+</html>
